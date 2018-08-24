@@ -1,0 +1,14 @@
+
+.signature-box {
+    color: red;
+    position: absolute;
+    background: transparent no-repeat;
+    overflow: hidden;
+    outline: none;
+    text-align: right;
+    z-index: 2;
+}
+
+canvas {
+    width: 100%;
+}

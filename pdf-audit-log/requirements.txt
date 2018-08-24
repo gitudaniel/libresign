@@ -1,0 +1,4 @@
+reportlab
+flask
+flask_cors
+raven[flask]

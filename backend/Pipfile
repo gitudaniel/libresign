@@ -1,0 +1,21 @@
+[[source]]
+verify_ssl = true
+name = "pypi"
+url = "https://pypi.org/simple"
+
+[dev-packages]
+
+[requires]
+python_version = "3.5"
+
+[packages]
+connexion = "*"
+python-dateutil = "==2.6.0"
+cloudstorage = "*"
+bidict = "*"
+requests = "*"
+celery = "*"
+Flask-JWT-Extended = "*"
+Flask-Bcrypt = "*"
+SQLAlchemy = "*"
+psychopg2-binary = "*"

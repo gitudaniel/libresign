@@ -1,0 +1,4 @@
+sqlalchemy
+sqlalchemy_continuum
+argparse
+psycopg2-binary

@@ -1,0 +1,64 @@
+
+version: "2"
+
+services:
+  postgres:
+    image: library/postgres:latest
+    environment:
+      POSTGRES_USERNAME: "${POSTGRES_USERNAME}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+    stop_grace_period: 30s
+    ports:
+      - '5432:5432'
+    volumes:
+      - "dbdata:/var/lib/postgresql/data"
+
+  pdfservice:
+    image: lend88/pdf-esigner-pdfservice
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_PDF_SERVICE}"
+  
+  rabbitmq:
+    image: library/rabbitmq:alpine
+
+  backend:
+    image: lend88/pdf-esigner-backend
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+    ports:
+      - '80:80'
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_BACKEND}"
+      DATABASE_URI: "postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+  celery:
+    image: lend88/pdf-esigner-celery
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: always
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_CELERY}"
+      DATABASE_URI: "postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+  audit-gen:
+    image: lend88/pdf-esigner-audit-gen
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_AUDIT_LOG}"
+    
+  field-locator:
+    image: lend88/pdf-esigner-field-locator
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_FIELD_LOCATOR}"
+
+  watchtower:
+    image: v2tec/watchtower
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+    command: --interval 60 --cleanup
+
+volumes:
+  dbdata:

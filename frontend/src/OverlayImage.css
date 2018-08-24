@@ -1,0 +1,9 @@
+
+.overlay-image {
+    position: absolute;
+}
+
+.overlay-div {
+    position: absolute;
+    background: none no-repeat scroll 0 0 #fff;
+}

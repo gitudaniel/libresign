@@ -1,0 +1,8 @@
+
+# Default behaviour
+* text=auto
+
+# All shell scripts need to keep unix line endings
+*.sh text eol=lf
+*.yml text eol=lf
+*py text eol=lf

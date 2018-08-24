@@ -1,0 +1,67 @@
+
+version: "2"
+
+services:
+  postgres:
+    image: library/postgres:latest
+    environment:
+      POSTGRES_USERNAME: "${POSTGRES_USERNAME}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: "${POSTGRES_DB}"
+    stop_grace_period: 30s
+    ports:
+      - '5433:5432'
+    volumes:
+      - "dbdata:/var/lib/postgresql/data"
+
+  pdfservice:
+    build: pdf-service
+    ports:
+      - '8003:80'
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_PDF_SERVICE}"
+  
+  rabbitmq:
+    image: library/rabbitmq:alpine
+
+  backend:
+    build: backend
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: unless-stopped
+    ports:
+      - '8000:80'
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_BACKEND}"
+      DATABASE_URI: "postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+  celery:
+    build:
+      context: backend
+      dockerfile: 'Dockerfile-Celery'
+    depends_on:
+      - postgres
+      - rabbitmq
+    restart: always
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_CELERY}"
+      DATABASE_URI: "postgres://${POSTGRES_USERNAME}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
+
+  audit-gen:
+    build: pdf-audit-log
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_AUDIT_LOG}"
+    
+  field-locator:
+    build: pdf-field-locator
+    ports:
+      - '8002:80'
+    environment:
+      SENTRY_DSN: "${SENTRY_DSN_FIELD_LOCATOR}"
+
+  echo-server:
+    build: testing/echo-server
+
+volumes:
+  dbdata:

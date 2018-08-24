@@ -1,0 +1,909 @@
+---
+swagger: '2.0'
+info:
+  description: "PDF Service"
+  version: "0.0.1"
+  title: "PDF Service"
+host: "sign.kew.ca"
+#host: localhost:8000
+basePath: "/v1"
+schemes:
+- "https"
+paths:
+  /document:
+    post:
+      summary: "Create a document"
+      description:
+        Verify that all fields that are linked to
+        signators actually have corresponding fields
+        within the document and that those fields
+        are actually fillable (contain a field specifier).
+        This method aborts with HTTP 400 if the conditions
+        are violated.
+      operationId: "document_post"
+      consumes:
+        - "multipart/form-data"
+      parameters:
+        - name: "docName"
+          in: "formData"
+          description: "The name of the document to be created."
+          required: true
+          type: "string"
+        - name: "signators"
+          in: "formData"
+          description: 
+            "JSON object detailing all the signators for the form\
+            \ and the fields that they are supposed to be signing."
+          type: "string"
+          required: true
+        - name: "file"
+          in: "formData"
+          description: "The PDF document to be uploaded"
+          required: true
+          type: "file"
+      responses:
+        201:
+          description: "A new document was successfully created. The location of the\
+            \ new document will be returned in the Location header."
+          headers:
+            Location:
+              type: "string"
+            X-Document-Id:
+              type: "string"
+          schema:
+            properties:
+              docId:
+                type: string
+                description: The document ID
+        400:
+          description: "The document was not a valid PDF form."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        413:
+          $ref: "#/responses/RequestTooLarge"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.document.root"
+  /document/{docId}:
+    get:
+      summary: "View a document"
+      description:
+        Fetch a document or page of a document.
+        This endpoint will record that the document
+        has been viewed in the audit log. The
+        format that will returned is decided by the
+        Accept header. The default format is
+        application/pdf in cases where no accept
+        header is provided.
+      operationId: "get"
+      produces:
+        - application/pdf
+        - image/png
+      parameters:
+        - name: docId
+          in: path
+          description: The document ID that the client wishes to view
+          required: true
+          type: string
+        - name: page
+          in: query
+          description:
+            When requesting an image, indicate which page the client
+            wishes to request. If the client is requesting a PDF,
+            this parameter is ignored.
+          required: false
+          type: number
+      responses:
+        200:
+          description: "The document has been retrieved successfully"
+          schema:
+            type: file
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "A document with the given ID could not be found."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.document.doc_id"
+    delete:
+      summary: "Delete a document"
+      description:
+        Delete a document and all artifacts associated
+        with the document (audit log, rendered pages,
+        file usages, field usages, fields, etc.).
+        This action is irreversible and will also
+        delete the document without notice for all
+        users who have fields to fill within the
+        document.
+      operationId: "delete"
+      parameters:
+        - name: "docId"
+          in: "path"
+          description: "The document ID to delete"
+          required: true
+          type: "string"
+      responses:
+        204:
+          description: "The document was deleted successfully."
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "There is no document with the given ID."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.document.doc_id"
+  /document/{docId}/audit:
+    get:
+      summary: "Get the audit log for a document"
+      description:
+        Fetch the audit log for a given document.
+        This endpoint can fetch the audit log in
+        multiple formats depending on the mimetypes
+        given by the client in the Accept header.
+      operationId: "audit_get"
+      produces:
+        - application/json
+        - application/pdf
+      parameters:
+        - name: "docId"
+          in: "path"
+          required: true
+          type: "string"
+      responses:
+        200:
+          description: "The request succeeded and will return the audit log"
+          schema:
+            type: array
+            items:
+              $ref: "#/definitions/AuditLogEntry"
+            xml:
+              name: AuditLog
+              wrapped: true
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "There is no audit log with the given document ID"
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.document.audit"
+  /document/{docId}/send-reminder-email:
+    post:
+      summary: Send a reminder email to signators
+      description:
+        Send an email to the provided email address
+        regarding fields for them within the given
+        document. If no email address is provided,
+        then an email is sent to all users who have
+        a field that is still unfilled on the document.
+      operationId: send_reminder_email
+      consumes:
+        - "multipart/form-data"
+        - "application/x-www-form-urlencoded"
+      parameters:
+        - name: docId
+          in: path
+          required: true
+          type: string
+        - name: email
+          in: formData
+          type: string
+      responses:
+        202:
+          description: "The email request has been received successfully"
+        400:
+          description: The email provided is not associated with the document
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: There is no document with the given document ID. 
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.email"
+  /document/{docId}/info:
+    get:
+      summary: Get information about the document
+      description:
+        Fetch information about the document. This
+        information is intended to be used by
+        applications showing the fields to users
+        and includes the location, size and status
+        of various fields in the document and the
+        dimensions of all pages within the document.
+        Note that all sizes/locations are in PDF
+        units.
+      operationId: info_get
+      produces:
+        - application/json
+      parameters:
+        - in: path
+          type: string
+          name: docId
+          description: The document ID
+          required: true
+      security:
+        - jwt: []
+      responses:
+        200:
+          description: Return information about the document
+          schema:
+            $ref: "#/definitions/DocumentInfo"
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: The document does not exist. 
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      x-swagger-router-controller: "swagger_server.controllers.document.info"
+  /document/{docId}/agree-tos:
+    post:
+      summary: Indicate that the user has agreed to the service's TOS.
+      description:
+        Indicate that the user has agreed to the TOS
+        this should be the last step after the user
+        has filled out all the fields in the document
+        although it doesn't have to be.
+      operationId: agree_tos
+      produces:
+        - application/json
+      parameters:
+        - name: docId
+          in: path
+          description: The document ID
+          required: true
+          type: string
+      security:
+        - jwt: []
+      responses:
+        204:
+          description: OK
+        400:
+          description: The document ID was malformed.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      x-swagger-router-controller: "swagger_server.controllers.document.agree_tos"
+
+  /field/bulk-fill:
+    post:
+      summary: Fill many document fields at once
+      description:
+        Fill multiple fields at once, this
+        allows multiple fields to be filled
+        while only adding one audit entry.
+
+        "Arguments:"
+            All arguments form a key-value dictionary
+            where the keys are the field ids and the
+            values are either strings to fill in or
+            images to stamp.
+      operationId: bulk_fill
+      consumes:
+        - application/x-www-form-urlencoded
+        - multipart/form-data
+      responses:
+        204: 
+          description: OK
+        400:
+          description: "A parameter was invalid"
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "No field exists with the requested ID."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.signature"
+  /field/{fieldId}/fill-image:
+    post:
+      summary: "Fill a document field"
+      description:
+        Start the signature of a document. This
+        marks the given field as filled and starts
+        a task to re-render the document with the
+        new signature added. This endpoint will
+        also fill out fields dependant on the one
+        being signed.
+      operationId: fill_signature
+      consumes:
+        - "multipart/form-data"
+      parameters:
+        - name: "fieldId"
+          in: "path"
+          description: "The field ID"
+          required: true
+          type: "string"
+        - name: "fieldData"
+          in: "formData"
+          description: "The actual signature image of the signator."
+          required: true
+          type: "file"
+      responses:
+        201:
+          description: 
+            The field value has been received. Stamping and filling the
+            document will be done in the background.
+        400:
+          description: "Not a valid signature. Either the form data failed to validate,\
+            \ or the signature image is invalid."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "No field exists with the requested ID."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.signature"
+  /field/{fieldId}/fill-text:
+    post:
+      summary: "Fill a document field"
+      description:
+        Start the filling of a text field within a
+        document. This marks the given field as filled
+        and starts a task to re-render the document
+        with the field filled. This endpoint will also
+        fill out fields dependant on the one being filled.
+      operationId: "fill_text"
+      consumes:
+        - "application/x-www-form-urlencoded"
+        - "multipart/form-data"
+      parameters:
+        - name: "fieldId"
+          in: "path"
+          description: "The field ID"
+          required: true
+          type: "string"
+        - name: "value"
+          in: "formData"
+          description: New field value
+          required: true
+          type: "string"
+      responses:
+        204:
+          description: 
+            The field value has been received. Stamping and filling the
+            document will be done in the background.
+        400:
+          description: 
+            Either the form was malformed or the value was empty.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        404:
+          description: "No field exists with the requested ID."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.signature"
+  
+  /auth:
+    post:
+      summary: "Authenticate as a user"
+      operationId: "auth_post"
+      consumes:
+        - "application/x-www-form-urlencoded"
+        - "multipart/form-data"
+      produces:
+        - "application/json"
+      parameters:
+        - in: "formData"
+          type: string
+          name: username
+          required: true
+          description: "Username"
+        - in: "formData"
+          type: string
+          name: password
+          description: "Password"
+      responses:
+        200:
+          description: "Authentication succeeded"
+          schema:
+            $ref: "#/definitions/AuthResult"
+        400:
+          description: 
+            The client passed in invalid form data.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          description: 
+            User authentication failed. Either the username 
+            or the password were invalid.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+      x-swagger-router-controller: "swagger_server.controllers.auth"
+  /access:
+    post:
+      summary: Authenticate from an auth token
+      operationId: auth_access_id_post
+      produces:
+        - application/json
+      parameters:
+        - in: header
+          type: string
+          name: accessId
+          description: The access token.
+          required: true
+      responses:
+        200:
+          description: "Authentication succeeded"
+          schema:
+            $ref: "#/definitions/AuthResult"
+        401:
+          description:
+            The access id has been revoked.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        404:
+          description:
+            The access id was not valid.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+      x-swagger-router-controller: "swagger_server.controllers.auth"
+  /account/create:
+    post:
+      summary: "Create an account"
+      description:
+        Create a new account with the given
+        username and password and attach it
+        to the given business.
+      operationId: "account_create_post"
+      consumes:
+        - "multipart/form-data"
+        - "application/x-www-form-urlencoded"
+      parameters:
+        - name: username
+          in: formData
+          required: true
+          type: string
+        - name: password
+          in: formData
+          required: true
+          type: string
+        - name: business
+          in: formData
+          required: true
+          type: number
+      responses:
+        200:
+          description: 
+            The account was successfully created, the
+            Location header points to the account id.
+          schema:
+            $ref: "#/definitions/AuthResult"
+        400:
+          description: 
+            The account could not be created, either
+            a user exists already with the account name
+            or a required parameter was not present.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+  /account/fields:
+    get:
+      summary: "Get all fields for the user"
+      operationId: "account_fields_get"
+      produces:
+        - "application/json"
+      parameters: []
+      responses:
+        200:
+          description: "A list of signatures has been returned"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/SignatureID"
+        401:
+          $ref: "#/responses/Unauthorized"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+  /account/documents:
+    get:
+      summary: "Get all documents for the user"
+      description:
+        Fetch a list of all documents owned by the
+        current user with some details for each
+        document.
+      operationId: "account_documents_get"
+      parameters: []
+      responses:
+        200:
+          description: "A list of documents has been returned"
+          schema:
+            type: "array"
+            items:
+              $ref: "#/definitions/DocumentID"
+        401:
+          $ref: "#/responses/Unauthorized"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+  /account/change-password:
+    post:
+      summary: "Change the password of a user"
+      operationId: "account_change_password_post"
+      consumes:
+        - "application/x-www-form-urlencoded"
+        - "multipart/form-data"
+      produces:
+        - "application/json"
+      parameters:
+        - name: "newPassword"
+          in: "formData"
+          description: "The new password for the user"
+          required: true
+          type: "string"
+      responses:
+        200:
+          description: 
+            The password was successfully changed for
+            the user. The old password will no longer
+            be valid and the new one should be used for
+            all future requests."
+        400:
+          description: "The body was not a valid for the content type provided."
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          $ref: "#/responses/Unauthorized"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+  /account/resurrect:
+    post:
+      summary: "Bring back a deleted account if it hasn't been fully deleted yet."
+      description:
+        Resurrect an account that has been deleted.
+        Note that this can only be done to accounts
+        that had a password before being deleted.
+      operationId: "account_resurrect_post"
+      consumes:
+        - "application/x-www-form-urlencoded"
+        - "multipart/form-data"
+      parameters:
+        - name: "username"
+          in: "formData"
+          description: "The username that should be recovered"
+          required: true
+          type: "string"
+        - name: password
+          in: formData
+          description: The password of the account to be resurrected.
+          required: true
+          type: string
+      responses:
+        204:
+          description: The account has been recovered successfully.
+        400:
+          description: The form data was not encoded correctly.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        401:
+          # NOTE: This exposes whether an account exists or not
+          #       it may be prudent to just return 401 irrespective
+          #       of whether the account exists or not.
+          description: The account is not deleted or the password is wrong.
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        404:
+          # NOTE: Maybe this should be merged with the 401 response
+          description: No such account exists
+          schema:
+            $ref: "#/definitions/ErrorMessage"
+        415:
+          $ref: "#/responses/InvalidContentType"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+  /account/delete:
+    post:
+      summary: "Delete an account"
+      operationId: "account_delete_post"
+      description:
+        Mark an account for deletion, this will keep
+        the account info until all documents owned by
+        other accounts that reference it are deleted.
+        The account can be brought back using the
+        /account/resurrect endpoint while it has not
+        been fully deleted. This endpoint will also
+        revoke all access URIs for the user, if the
+        account is resurrected it will have to get new
+        access URIs from document owners.
+      parameters: []
+      responses:
+        200:
+          description: "The account was deleted succesfully"
+        401:
+          $ref: "#/responses/Unauthorized"
+        422:
+          $ref: "#/responses/InvalidToken"
+        429:
+          $ref: "#/responses/TooManyRequests"
+      security:
+        - jwt: []
+      x-swagger-router-controller: "swagger_server.controllers.account"
+securityDefinitions:
+  jwt:
+    type: "apiKey"
+    name: "Authorization"
+    in: "header"
+definitions:
+  ErrorMessage:
+    type: object
+    properties:
+      title: 
+        type: string
+        description: "Error message describing the error"
+      description:
+        type: string
+        description: "Additional error details"
+    required:
+      - title
+    example:
+      title: "Error Message"
+      description: "More details..."
+  DocumentID:
+    properties:
+      id:
+        type: "string"
+        description: "The document ID"
+      title:
+        type: string
+        description: "The document title"
+    required:
+      - id
+    example:
+      id: "id"
+  SignatureID:
+    properties:
+      id:
+        type: "string"
+        description: "The signature ID"
+      status:
+        type: "string"
+        description: 
+          A keyword describing the current state
+          of the signature.
+        enum:
+        - "empty"
+        - "filled"
+      title:
+        type: string
+        description: The title of the document.
+      timestamp:
+        type: string
+        description:
+          The timestamp of the last modification
+          to the document.
+    required:
+      - id
+      - status
+      - title
+      - timestamp
+    example:
+      id: "id"
+      status: "status"
+      title: "My Document"
+      timestamp: "0000-00-00T00:00:00.000000"
+  AuthResult:
+    properties:
+      token:
+        type: "string"
+        description: "Authorization token"
+    example:
+      token: "token"
+  AuditLogEntry:
+    type: object
+    properties:
+      status:
+        type: string
+        description:
+          The type of the last action that was carried
+          out on the document.
+        enum:
+          - created
+          - viewed
+          - stamp_failed
+          - stamp_success
+          - updated
+      timestamp:
+        type: string
+        description:
+          An ISO format timestamp indicating the date
+          and time that the event occurred at.
+      data:
+        type: object
+        description:
+            An object containing extra details about
+            the status.
+    example:
+      status: created
+      timestamp: "2018-06-26T16:02:19.251849"
+    required:
+      - status
+      - timestamp
+    xml:
+      name: AuditLogEntry
+  DocumentInfoPageEntry:
+    type: object
+    properties:
+      height: 
+        type: number
+        description: The height of the page, in PDF units.
+      width:
+        type: number
+        description: The width of the page, in PDF units.
+    required:
+      - height
+      - width
+  DocumentInfoFieldEntry:
+    type: object
+    properties:
+      id:
+        type: string
+        description: "The field ID"
+      name:
+        type: string
+        description: The name of the field.
+      rect:
+        type: object
+        properties:
+          x: 
+            type: number
+          y:
+            type: number
+          w:
+            type: number
+          h:
+            type: number
+        required:
+          - "x"
+          - "y"
+          - "w"
+          - "h"
+      page:
+        type: number
+        description: The page that contains the field. Indices start at 0.
+    required:
+      - id
+      - name
+      - rect
+      - page
+  DocumentInfo:
+    type: object
+    properties:
+      pages:
+        type: array
+        description: Details about each page in the document
+        items:
+          $ref: "#/definitions/DocumentInfoPageEntry"
+      fields:
+        type: array
+        description: 
+          Details about each field within the document
+          that is owned by the current user.
+        items:
+          $ref: "#/definitions/DocumentInfoFieldEntry"
+    required:
+      - pages
+      - fields
+
+responses:
+  TooManyRequests:
+    description: 
+      The client has submitted too many requests, 
+      and should retry at a later time.
+    schema:
+      $ref: "#/definitions/ErrorMessage"
+  Unauthorized:
+    description: 
+      The client is not authorized to perform this action. If the client
+      has the appropriate credentials to view the resource, they should authenticate
+      using those credentials.
+    schema:
+      $ref: "#/definitions/ErrorMessage"
+  InvalidToken:
+    description:
+      The client passed in an authorization token that
+      was not a JWT.
+    schema:
+      $ref: "#/definitions/ErrorMessage"
+  InvalidContentType:
+    description:
+      The client passed in a request that did not 
+      have the required content type.
+    schema:
+      $ref: "#/definitions/ErrorMessage"
+  RequestTooLarge:
+    description:
+      The request is too large and will not be
+      accepted by the server.
+    schema:
+      $ref: "#/definitions/ErrorMessage"

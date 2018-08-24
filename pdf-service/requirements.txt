@@ -1,0 +1,11 @@
+
+sh
+flask
+flask_cors
+pdfjinja
+requests
+reportlab
+pypdf2
+pillow
+fdfgen
+raven[flask]
